@@ -20,7 +20,8 @@ import io
 load_dotenv()
 
 # Initialize OpenAI client with API key from .env
-client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+api_key = st.secrets["OPENAI_API_KEY"]
+client = openai.OpenAI(api_key=api_key)
 
 # Initialize speech recognizer
 recognizer = sr.Recognizer()
