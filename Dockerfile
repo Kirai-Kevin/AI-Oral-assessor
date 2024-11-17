@@ -25,25 +25,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Create directory for temporary audio storage
 RUN mkdir -p /app/temp_audio && chown -R appuser:appuser /app/temp_audio
 
+# Copy requirements file
 COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    pip install --no-cache-dir portaudio==19.7.0 && \
     pip install --no-cache-dir pyaudio==0.2.13 && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir git+https://github.com/taconi/playsound.git
 
+# Copy application files
 COPY . .
 
+# Set permissions for the application
 RUN chown -R appuser:appuser /app
 
+# Switch to non-root user
 USER appuser
 
 # Let Render assign the port
 ENV PORT=8501
 EXPOSE $PORT
 
+# Start the application
 CMD streamlit run --server.port $PORT --server.address 0.0.0.0 app.py
