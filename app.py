@@ -407,11 +407,10 @@ def check_audio_devices():
                     continue
             
             return False, "No working input devices found. Please check your system audio settings."
-            
-        return True, "Audio input device available"
         
     except Exception as e:
         return False, f"Error checking audio devices: {str(e)}"
+
 
 
 def record_audio():
