@@ -15,6 +15,7 @@ from docx.shared import Inches
 import pandas as pd
 import PyPDF2
 import io
+import sounddevice as sd
 
 # Load environment variables
 load_dotenv()
@@ -377,19 +378,64 @@ def play_audio(file_path):
     except Exception as e:
         st.error(f"Error playing audio: {str(e)}")
 
-def record_audio():
-    """Record audio from microphone and convert to text"""
+def check_audio_devices():
+    """Check for available audio input devices and return status"""
     try:
-        with sr.Microphone() as source:
-            # Reduce ambient noise
-            recognizer.adjust_for_ambient_noise(source, duration=0.5)
+        # Get list of audio devices using sounddevice
+        devices = sd.query_devices()
+        input_devices = [d for d in devices if d['max_input_channels'] > 0]
+        
+        if not input_devices:
+            return False, "No input devices found. Please connect a microphone."
+        
+        # Check if default input device is set
+        try:
+            default_device = sd.query_devices(kind='input')
+            if default_device is None:
+                return False, "No default input device set. Please check your system audio settings."
+        except sd.PortAudioError:
+            return False, "Error accessing default input device. Please check your system audio settings."
             
-            # Visual feedback
+        return True, "Audio input device available"
+        
+    except Exception as e:
+        return False, f"Error checking audio devices: {str(e)}"
+
+def record_audio():
+    """Record audio from microphone with enhanced error handling"""
+    # First check if audio devices are available
+    devices_available, message = check_audio_devices()
+    if not devices_available:
+        st.error(message)
+        st.error("Please ensure a microphone is connected and selected in your system settings.")
+        st.info("Troubleshooting steps:")
+        st.markdown("""
+        1. Check if your microphone is properly connected
+        2. Check system sound settings:
+           - Windows: Right-click speaker icon > Sound settings > Input
+           - Mac: System Preferences > Sound > Input
+           - Linux: Check sound settings or run 'pavucontrol'
+        3. Make sure your browser has microphone permissions
+        4. Try restarting your application
+        """)
+        return None
+    
+    try:
+        # Initialize recognizer
+        recognizer = sr.Recognizer()
+        
+        # Create a microphone instance with explicit device selection
+        with sr.Microphone() as source:
+            # Show audio levels to confirm microphone is working
+            st.info("🎤 Adjusting for ambient noise... Please wait.")
+            recognizer.adjust_for_ambient_noise(source, duration=1)
+            
+            # Visual feedback for recording state
             st.info("🎤 Listening... Speak now!")
             
             try:
-                # Record audio
-                audio = recognizer.listen(source, timeout=10.0)
+                # Record audio with timeout
+                audio = recognizer.listen(source, timeout=10.0, phrase_time_limit=30.0)
                 st.info("Processing your answer...")
                 
                 # Convert speech to text
@@ -397,18 +443,43 @@ def record_audio():
                 return text
                 
             except sr.WaitTimeoutError:
-                st.error("No speech detected. Please try again.")
+                st.error("No speech detected within timeout period. Please try again.")
                 return None
                 
     except sr.RequestError as e:
-        st.error(f"Could not request results; {e}")
+        st.error(f"Could not request results from speech recognition service; {e}")
+        st.info("Please check your internet connection and try again.")
         return None
+        
     except sr.UnknownValueError:
-        st.error("Could not understand audio. Please try again.")
+        st.error("Could not understand audio. Please speak clearly and try again.")
         return None
+        
     except Exception as e:
         st.error(f"Error during audio recording: {str(e)}")
+        st.info("If the error persists, try restarting the application or checking system audio settings.")
         return None
+
+
+def initialize_audio():
+    """Initialize audio system and verify microphone access"""
+    st.info("Checking audio system...")
+    
+    devices_available, message = check_audio_devices()
+    if not devices_available:
+        st.error(message)
+        return False
+        
+    try:
+        # Test microphone initialization
+        with sr.Microphone() as source:
+            st.success("✅ Microphone initialized successfully")
+            return True
+    except Exception as e:
+        st.error(f"Failed to initialize microphone: {str(e)}")
+        st.info("Please check your system audio settings and microphone connection.")
+        return False
+
 
 def evaluate_answer(question, answer, code_context, rubric, additional_files=None):
     """Evaluate student's answer using the provided rubric"""
