@@ -6,7 +6,7 @@ from gtts import gTTS
 import os
 import time
 from pathlib import Path
-import pygame
+from playsound import playsound
 from dotenv import load_dotenv
 import json
 from datetime import datetime
@@ -20,7 +20,7 @@ import io
 load_dotenv()
 
 # Initialize OpenAI client with API key from .env
-client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Initialize speech recognizer
 recognizer = sr.Recognizer()
@@ -353,30 +353,34 @@ def text_to_speech(text):
         return None
 
 def play_audio(file_path):
-    """Play audio file using pygame"""
+    """Play audio file using playsound"""
     if file_path is None:
         return
         
     try:
-        pygame.mixer.init()
-        pygame.mixer.music.load(file_path)
-        pygame.mixer.music.play()
+        playsound(file_path)
         
-        # Wait for the audio to finish playing
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-            
-        # Clean up
-        pygame.mixer.music.unload()
-        pygame.mixer.quit()
-        
-        # Remove temporary file
+        # Remove temporary file after playing
         try:
             os.remove(file_path)
         except:
             pass
     except Exception as e:
         st.error(f"Error playing audio: {str(e)}")
+        # Fallback to browser audio playback if playsound fails
+        try:
+            audio_file = open(file_path, 'rb')
+            audio_bytes = audio_file.read()
+            st.audio(audio_bytes, format='audio/mp3')
+            audio_file.close()
+            
+            # Remove temporary file
+            try:
+                os.remove(file_path)
+            except:
+                pass
+        except Exception as e:
+            st.error(f"Error with fallback audio playback: {str(e)}")
 
 def record_audio():
     """Record audio from microphone and convert to text"""
@@ -694,11 +698,9 @@ def generate_recommendations(final_score, code_scores):
     return recommendations
 
 def main():
-    st.title("Code Assessment Interview")
+    st.title("Directed's Code Assessment Interview")
     
-    if not os.getenv('OPENAI_API_KEY'):
-        st.error("OpenAI API key not found. Please check your .env file.")
-        return
+
     
     initialize_session_state()
     
@@ -717,8 +719,8 @@ def main():
     # Rubric upload section
     st.subheader("Grading Rubric (Optional)")
     rubric_file = st.file_uploader(
-        "Upload custom rubric (JSON, CSV, PDF, or TXT):",
-        type=['json', 'csv', 'pdf', 'txt']
+        "Upload custom rubric (JSON, CSV, docx, doc, PDF, or TXT):",
+        type=['json', 'csv', 'pdf', 'txt', 'docx', 'doc']
     )
     
     if rubric_file:
@@ -739,7 +741,7 @@ def main():
     else:
         uploaded_code = st.file_uploader(
             "Upload your main code file:",
-            type=['py', 'java', 'cpp', 'c', 'cs', 'rb', 'php', 'js', 'html', 'css', 'swift', 'go', 'rs']
+            type=['py', 'java', 'cpp', 'c', 'cs', 'rb', 'php', 'js', 'html', 'css', 'swift', 'go', 'rs', 'jsx']
         )
         if uploaded_code:
             st.session_state.submitted_code = read_file_content(uploaded_code)
