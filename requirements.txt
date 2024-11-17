@@ -8,5 +8,5 @@ PyPDF2==3.0.1
 pandas==2.2.0
 python-dotenv==1.0.1
 git+https://github.com/jleb/pyaudio.git
-pygobject
+
 git+https://github.com/taconi/playsound.git
