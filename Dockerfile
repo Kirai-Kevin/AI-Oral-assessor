@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     libasound2-dev \
+    libportaudio2 \
+    libportaudiocpp0 \
     git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,9 +32,12 @@ RUN mkdir -p /app/temp_audio && chown -R appuser:appuser /app/temp_audio
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt \
-    git+https://github.com/taconi/playsound.git
+# Install Python dependencies with specific ordering
+RUN pip install --no-cache-dir wheel setuptools \
+    && pip install --no-cache-dir portaudio \
+    && pip install --no-cache-dir pyaudio \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir git+https://github.com/taconi/playsound.git
 
 # Copy application code
 COPY . .
