@@ -379,42 +379,52 @@ def play_audio(file_path):
         st.error(f"Error playing audio: {str(e)}")
 
 def check_audio_devices():
-    """Check for available audio input devices and automatically select the first available one"""
+    """Check for available audio input devices and return a list of valid devices"""
     try:
-        # Get list of audio devices using sounddevice
+        import sounddevice as sd
+        import speech_recognition as sr
+        
+        # Get list of all audio devices
         devices = sd.query_devices()
-        input_devices = [d for d in devices if d['max_input_channels'] > 0]
+        input_devices = []
+        
+        # Test each device
+        for i, device in enumerate(devices):
+            if device['max_input_channels'] > 0:  # Check if it's an input device
+                try:
+                    # Try to initialize microphone with this device
+                    mic = sr.Microphone(device_index=i)
+                    with mic as source:
+                        # If we can initialize it, it's a valid device
+                        input_devices.append({
+                            'index': i,
+                            'name': device['name'],
+                            'channels': device['max_input_channels'],
+                            'default_samplerate': device['default_samplerate']
+                        })
+                except Exception:
+                    continue
         
         if not input_devices:
-            return False, "No input devices found. Please connect a microphone."
+            return False, "No working microphone devices found", None
+            
+        # Try to find default device first
+        default_device = next(
+            (dev for dev in input_devices if "default" in dev['name'].lower() or 
+             "built-in" in dev['name'].lower()),
+            input_devices[0]  # Fall back to first device if no default found
+        )
         
-        # Automatically select the first available input device
-        default_device_index = input_devices[0]['index']
-        sd.default.device = default_device_index
+        return True, f"Found working microphone: {default_device['name']}", default_device['index']
         
-        # Test the selected device
-        try:
-            sd.check_input_settings(device=default_device_index)
-            return True, f"Using audio input device: {input_devices[0]['name']}"
-        except sd.PortAudioError:
-            # If the first device fails, try others
-            for device in input_devices[1:]:
-                try:
-                    sd.default.device = device['index']
-                    sd.check_input_settings(device=device['index'])
-                    return True, f"Using audio input device: {device['name']}"
-                except sd.PortAudioError:
-                    continue
-
-            return False, "No working input devices found. Please check your system audio settings."
-
     except Exception as e:
-        return False, f"Error checking audio devices: {str(e)}"
+        return False, f"Error detecting audio devices: {str(e)}", None
 
 
 
 def record_audio():
-    """Record audio from microphone with automatic device selection"""
+    """Record audio with improved error handling"""
+    # Initialize audio system if not already done
     if not hasattr(record_audio, 'initialized'):
         success = initialize_audio()
         if not success:
@@ -422,28 +432,23 @@ def record_audio():
         record_audio.initialized = True
     
     try:
-        # Initialize recognizer
         recognizer = sr.Recognizer()
+        _, _, device_index = check_audio_devices()
         
-        # Use the automatically selected device
-        with sr.Microphone(
-            device_index=sd.default.device,
-            sample_rate=44100,
-            chunk_size=1024
-        ) as source:
-            # Show audio levels to confirm microphone is working
+        if device_index is None:
+            st.error("No working microphone found")
+            return None
+        
+        with sr.Microphone(device_index=device_index) as source:
             st.info("🎤 Adjusting for ambient noise... Please wait.")
             recognizer.adjust_for_ambient_noise(source, duration=1)
             
-            # Visual feedback for recording state
             st.info("🎤 Listening... Speak now!")
             
             try:
-                # Record audio with timeout
                 audio = recognizer.listen(source, timeout=10.0, phrase_time_limit=30.0)
                 st.info("Processing your answer...")
                 
-                # Convert speech to text
                 text = recognizer.recognize_google(audio)
                 return text
                 
@@ -451,53 +456,45 @@ def record_audio():
                 st.error("No speech detected within timeout period. Please try again.")
                 return None
                 
-    except sr.RequestError as e:
-        st.error(f"Could not request results from speech recognition service; {e}")
-        st.info("Please check your internet connection and try again.")
-        return None
-        
-    except sr.UnknownValueError:
-        st.error("Could not understand audio. Please speak clearly and try again.")
-        return None
-        
     except Exception as e:
         st.error(f"Error during audio recording: {str(e)}")
-        st.info("If the error persists, try restarting the application.")
-        record_audio.initialized = False  # Reset initialization flag to try again next time
+        record_audio.initialized = False  # Reset initialization flag
         return None
 
 def initialize_audio():
-    """Initialize audio system with automatic device selection"""
-    st.info("Initializing audio system...")
-    
-    # Set up speech recognition with specific audio settings
+    """Initialize audio system with better error handling"""
     try:
-        # Initialize sounddevice with optimal settings
+        import sounddevice as sd
+        import speech_recognition as sr
+        
+        # Check for working audio devices
+        success, message, device_index = check_audio_devices()
+        
+        if not success:
+            st.error(message)
+            return False
+            
+        # Configure default audio device
+        sd.default.device = device_index
         sd.default.samplerate = 44100
         sd.default.channels = 1
         
-        # Check and select audio device
-        devices_available, message = check_audio_devices()
-        if not devices_available:
-            st.error(message)
-            return False
-        
-        # Configure speech recognition with selected device
-        sr.Microphone.list_microphone_names()  # Force device list refresh
-        mic = sr.Microphone(
-            device_index=sd.default.device,
-            sample_rate=44100,
-            chunk_size=1024
-        )
-        
         # Test microphone initialization
+        recognizer = sr.Recognizer()
+        mic = sr.Microphone(device_index=device_index)
+        
         with mic as source:
-            st.success(f"✅ {message}")
-            return True
-            
+            # Quick test recording
+            try:
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                st.success(f"✅ {message}")
+                return True
+            except Exception as e:
+                st.error(f"Failed to initialize microphone: {str(e)}")
+                return False
+                
     except Exception as e:
-        st.error(f"Failed to initialize microphone: {str(e)}")
-        st.info("Please check your system audio settings and microphone connection.")
+        st.error(f"Error setting up audio system: {str(e)}")
         return False
 
 
