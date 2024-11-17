@@ -313,7 +313,7 @@ def evaluate_answer_with_rubric(question_data, answer, code_context, initial_ana
             raise ValueError("Incomplete response format")
             
         try:
-            score = float(lines[2])  # Convert score to float
+            score = float(''.join(filter(str.isdigit, lines[2])))  # Convert score to float
         except ValueError:
             score = 0  # Default to 0 if conversion fails
             
@@ -405,9 +405,9 @@ def check_audio_devices():
                     return True, f"Using audio input device: {device['name']}"
                 except sd.PortAudioError:
                     continue
-            
+
             return False, "No working input devices found. Please check your system audio settings."
-        
+
     except Exception as e:
         return False, f"Error checking audio devices: {str(e)}"
 
