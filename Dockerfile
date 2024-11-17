@@ -14,13 +14,14 @@ RUN useradd --create-home appuser
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies, including Git
 RUN apt-get update && apt-get install -y --no-install-recommends \
     portaudio19-dev \
     python3-dev \
     build-essential \
     gcc \
     libasound2-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directory for audio files
