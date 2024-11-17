@@ -353,34 +353,29 @@ def text_to_speech(text):
         return None
 
 def play_audio(file_path):
-    """Play audio file using playsound"""
+    """Play audio file using Streamlit's native audio player"""
     if file_path is None:
         return
         
     try:
-        playsound(file_path)
+        # Read the audio file
+        with open(file_path, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+            
+        # Create a container for the audio player
+        audio_container = st.empty()
         
-        # Remove temporary file after playing
+        # Play the audio using Streamlit's audio component
+        audio_container.audio(audio_bytes, format='audio/mp3')
+        
+        # Remove temporary file after loading
         try:
             os.remove(file_path)
         except:
             pass
+            
     except Exception as e:
         st.error(f"Error playing audio: {str(e)}")
-        # Fallback to browser audio playback if playsound fails
-        try:
-            audio_file = open(file_path, 'rb')
-            audio_bytes = audio_file.read()
-            st.audio(audio_bytes, format='audio/mp3')
-            audio_file.close()
-            
-            # Remove temporary file
-            try:
-                os.remove(file_path)
-            except:
-                pass
-        except Exception as e:
-            st.error(f"Error with fallback audio playback: {str(e)}")
 
 def record_audio():
     """Record audio from microphone and convert to text"""
