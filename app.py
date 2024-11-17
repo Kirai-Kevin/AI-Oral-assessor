@@ -288,14 +288,14 @@ def evaluate_answer_with_rubric(question_data, answer, code_context, initial_ana
     Respond EXACTLY in this format (each on a new line, no additional text):
     ASSESSMENT_TYPE
     EXPLANATION
-    SCORE
+    SCORE_NUMBER
     NEEDS_FOLLOWUP
     FOLLOWUP_QUESTION
     
     Where:
     - ASSESSMENT_TYPE must be exactly GOOD, NEEDS_IMPROVEMENT, or NEEDS_FOLLOWUP
     - EXPLANATION is your detailed evaluation
-    - SCORE must be a number between 0 and {question_data['points']}
+    - SCORE_NUMBER must be a number between 0 and {question_data['points']} (just the number, no text)
     - NEEDS_FOLLOWUP must be exactly YES or NO
     - FOLLOWUP_QUESTION is your follow-up question if needed, or NONE if not needed
     """
@@ -311,11 +311,23 @@ def evaluate_answer_with_rubric(question_data, answer, code_context, initial_ana
         
         if len(lines) < 5:
             raise ValueError("Incomplete response format")
-            
+        
+        # Parse score with better error handling
         try:
-            score = float(''.join(filter(str.isdigit, lines[2])))  # Convert score to float
+            # First try simple float conversion
+            score = float(lines[2])
         except ValueError:
-            score = 0  # Default to 0 if conversion fails
+            # If that fails, try to extract just the numeric part
+            import re
+            numeric_match = re.search(r'(\d+\.?\d*)', lines[2])
+            if numeric_match:
+                score = float(numeric_match.group(1))
+            else:
+                score = 0  # Default to 0 if no valid number found
+                
+        # Ensure score is within valid range
+        max_points = float(question_data['points'])
+        score = min(max(0, score), max_points)
             
         return {
             'assessment_type': lines[0],
