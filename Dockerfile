@@ -30,7 +30,8 @@ RUN mkdir -p /app/temp_audio && chown -R appuser:appuser /app/temp_audio
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    git+https://github.com/taconi/playsound.git
 
 # Copy application code
 COPY . .
