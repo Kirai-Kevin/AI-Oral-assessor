@@ -379,7 +379,7 @@ def play_audio(file_path):
         st.error(f"Error playing audio: {str(e)}")
 
 def check_audio_devices():
-    """Check for available audio input devices and return status"""
+    """Check for available audio input devices and automatically select the first available one"""
     try:
         # Get list of audio devices using sounddevice
         devices = sd.query_devices()
@@ -388,44 +388,50 @@ def check_audio_devices():
         if not input_devices:
             return False, "No input devices found. Please connect a microphone."
         
-        # Check if default input device is set
+        # Automatically select the first available input device
+        default_device_index = input_devices[0]['index']
+        sd.default.device = default_device_index
+        
+        # Test the selected device
         try:
-            default_device = sd.query_devices(kind='input')
-            if default_device is None:
-                return False, "No default input device set. Please check your system audio settings."
+            sd.check_input_settings(device=default_device_index)
+            return True, f"Using audio input device: {input_devices[0]['name']}"
         except sd.PortAudioError:
-            return False, "Error accessing default input device. Please check your system audio settings."
+            # If the first device fails, try others
+            for device in input_devices[1:]:
+                try:
+                    sd.default.device = device['index']
+                    sd.check_input_settings(device=device['index'])
+                    return True, f"Using audio input device: {device['name']}"
+                except sd.PortAudioError:
+                    continue
+            
+            return False, "No working input devices found. Please check your system audio settings."
             
         return True, "Audio input device available"
         
     except Exception as e:
         return False, f"Error checking audio devices: {str(e)}"
 
+
 def record_audio():
-    """Record audio from microphone with enhanced error handling"""
-    # First check if audio devices are available
-    devices_available, message = check_audio_devices()
-    if not devices_available:
-        st.error(message)
-        st.error("Please ensure a microphone is connected and selected in your system settings.")
-        st.info("Troubleshooting steps:")
-        st.markdown("""
-        1. Check if your microphone is properly connected
-        2. Check system sound settings:
-           - Windows: Right-click speaker icon > Sound settings > Input
-           - Mac: System Preferences > Sound > Input
-           - Linux: Check sound settings or run 'pavucontrol'
-        3. Make sure your browser has microphone permissions
-        4. Try restarting your application
-        """)
-        return None
+    """Record audio from microphone with automatic device selection"""
+    if not hasattr(record_audio, 'initialized'):
+        success = initialize_audio()
+        if not success:
+            return None
+        record_audio.initialized = True
     
     try:
         # Initialize recognizer
         recognizer = sr.Recognizer()
         
-        # Create a microphone instance with explicit device selection
-        with sr.Microphone() as source:
+        # Use the automatically selected device
+        with sr.Microphone(
+            device_index=sd.default.device,
+            sample_rate=44100,
+            chunk_size=1024
+        ) as source:
             # Show audio levels to confirm microphone is working
             st.info("🎤 Adjusting for ambient noise... Please wait.")
             recognizer.adjust_for_ambient_noise(source, duration=1)
@@ -457,24 +463,39 @@ def record_audio():
         
     except Exception as e:
         st.error(f"Error during audio recording: {str(e)}")
-        st.info("If the error persists, try restarting the application or checking system audio settings.")
+        st.info("If the error persists, try restarting the application.")
+        record_audio.initialized = False  # Reset initialization flag to try again next time
         return None
 
-
 def initialize_audio():
-    """Initialize audio system and verify microphone access"""
-    st.info("Checking audio system...")
+    """Initialize audio system with automatic device selection"""
+    st.info("Initializing audio system...")
     
-    devices_available, message = check_audio_devices()
-    if not devices_available:
-        st.error(message)
-        return False
-        
+    # Set up speech recognition with specific audio settings
     try:
+        # Initialize sounddevice with optimal settings
+        sd.default.samplerate = 44100
+        sd.default.channels = 1
+        
+        # Check and select audio device
+        devices_available, message = check_audio_devices()
+        if not devices_available:
+            st.error(message)
+            return False
+        
+        # Configure speech recognition with selected device
+        sr.Microphone.list_microphone_names()  # Force device list refresh
+        mic = sr.Microphone(
+            device_index=sd.default.device,
+            sample_rate=44100,
+            chunk_size=1024
+        )
+        
         # Test microphone initialization
-        with sr.Microphone() as source:
-            st.success("✅ Microphone initialized successfully")
+        with mic as source:
+            st.success(f"✅ {message}")
             return True
+            
     except Exception as e:
         st.error(f"Failed to initialize microphone: {str(e)}")
         st.info("Please check your system audio settings and microphone connection.")
