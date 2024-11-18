@@ -288,14 +288,14 @@ def evaluate_answer_with_rubric(question_data, answer, code_context, initial_ana
     Respond EXACTLY in this format (each on a new line, no additional text):
     ASSESSMENT_TYPE
     EXPLANATION
-    SCORE
+    SCORE_NUMBER
     NEEDS_FOLLOWUP
     FOLLOWUP_QUESTION
     
     Where:
     - ASSESSMENT_TYPE must be exactly GOOD, NEEDS_IMPROVEMENT, or NEEDS_FOLLOWUP
     - EXPLANATION is your detailed evaluation
-    - SCORE must be a number between 0 and {question_data['points']}
+    - SCORE_NUMBER must be a number between 0 and {question_data['points']} (just the number, no text)
     - NEEDS_FOLLOWUP must be exactly YES or NO
     - FOLLOWUP_QUESTION is your follow-up question if needed, or NONE if not needed
     """
@@ -311,11 +311,23 @@ def evaluate_answer_with_rubric(question_data, answer, code_context, initial_ana
         
         if len(lines) < 5:
             raise ValueError("Incomplete response format")
-            
+        
+        # Parse score with better error handling
         try:
-            score = float(''.join(filter(str.isdigit, lines[2])))  # Convert score to float
+            # First try simple float conversion
+            score = float(lines[2])
         except ValueError:
-            score = 0  # Default to 0 if conversion fails
+            # If that fails, try to extract just the numeric part
+            import re
+            numeric_match = re.search(r'(\d+\.?\d*)', lines[2])
+            if numeric_match:
+                score = float(numeric_match.group(1))
+            else:
+                score = 0  # Default to 0 if no valid number found
+                
+        # Ensure score is within valid range
+        max_points = float(question_data['points'])
+        score = min(max(0, score), max_points)
             
         return {
             'assessment_type': lines[0],
@@ -378,24 +390,30 @@ def play_audio(file_path):
     except Exception as e:
         st.error(f"Error playing audio: {str(e)}")
 
-def check_audio_devices():
-    """Check for available audio input devices and return a list of valid devices"""
+def initialize_audio_system():
+    """Initialize audio system with automatic device selection and retry logic"""
     try:
         import sounddevice as sd
         import speech_recognition as sr
+        from time import sleep
         
-        # Get list of all audio devices
-        devices = sd.query_devices()
-        input_devices = []
+        st.info("🎤 Initializing audio system...")
         
-        # Test each device
-        for i, device in enumerate(devices):
-            if device['max_input_channels'] > 0:  # Check if it's an input device
-                try:
-                    # Try to initialize microphone with this device
-                    mic = sr.Microphone(device_index=i)
-                    with mic as source:
-                        # If we can initialize it, it's a valid device
+        # Maximum number of retries
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Get list of all audio devices
+                devices = sd.query_devices()
+                input_devices = []
+                
+                # Log available devices for debugging
+                st.write("Available audio devices:")
+                for i, device in enumerate(devices):
+                    if device['max_input_channels'] > 0:
+                        st.write(f"- {device['name']} (ID: {i})")
                         input_devices.append({
                             'index': i,
                             'name': device['name'],
@@ -419,35 +437,6 @@ def check_audio_devices():
         
     except Exception as e:
         return False, f"Error detecting audio devices: {str(e)}", None
-    
-def get_answer():
-    """Get answer either through voice or text input"""
-    # Check for working microphone
-    mic_available, mic_message, _ = check_audio_devices()
-    
-    if not mic_available:
-        st.warning("⚠️ No microphone available. Please type your answer below.")
-        # Provide text input alternative
-        text_answer = st.text_area("Your answer:", height=100)
-        if st.button("Submit Answer"):
-            return text_answer if text_answer else None
-        return None
-    else:
-        # Show both options
-        input_method = st.radio(
-            "Choose how to provide your answer:",
-            ["Voice Recording", "Text Input"]
-        )
-        
-        if input_method == "Voice Recording":
-            if st.button("Start Recording"):
-                return record_audio()
-        else:
-            text_answer = st.text_area("Your answer:", height=100)
-            if st.button("Submit Answer"):
-                return text_answer if text_answer else None
-        
-        return None
 
 
 
@@ -458,36 +447,45 @@ def record_audio():
         success = initialize_audio()
         if not success:
             return None
-        record_audio.initialized = True
+        record_audio_enhanced.initialized = True
+        record_audio_enhanced.device_index = device_index
     
     try:
         recognizer = sr.Recognizer()
-        _, _, device_index = check_audio_devices()
-        
-        if device_index is None:
-            st.error("No working microphone found")
-            return None
-        
-        with sr.Microphone(device_index=device_index) as source:
-            st.info("🎤 Adjusting for ambient noise... Please wait.")
+        with sr.Microphone(device_index=record_audio_enhanced.device_index) as source:
+            # Create a progress bar for ambient noise adjustment
+            progress_bar = st.progress(0)
+            for i in range(10):
+                progress_bar.progress((i + 1) * 0.1)
+                time.sleep(0.1)
+            
+            st.info("🎤 Adjusting for ambient noise...")
             recognizer.adjust_for_ambient_noise(source, duration=1)
             
-            st.info("🎤 Listening... Speak now!")
-            
-            try:
-                audio = recognizer.listen(source, timeout=10.0, phrase_time_limit=30.0)
-                st.info("Processing your answer...")
-                
-                text = recognizer.recognize_google(audio)
-                return text
-                
-            except sr.WaitTimeoutError:
-                st.error("No speech detected within timeout period. Please try again.")
-                return None
-                
+            # Add a visual indicator that the system is listening
+            with st.spinner("🎤 Listening... Speak now!"):
+                try:
+                    audio = recognizer.listen(source, timeout=10.0, phrase_time_limit=30.0)
+                    st.info("Processing your answer...")
+                    
+                    try:
+                        text = recognizer.recognize_google(audio)
+                        st.success("✅ Successfully recorded and transcribed!")
+                        return text
+                    except sr.UnknownValueError:
+                        st.error("Could not understand the audio. Please try speaking more clearly.")
+                        return None
+                    except sr.RequestError as e:
+                        st.error(f"Error with speech recognition service: {str(e)}")
+                        return None
+                        
+                except sr.WaitTimeoutError:
+                    st.error("No speech detected within timeout period. Please try again.")
+                    return None
+                    
     except Exception as e:
         st.error(f"Error during audio recording: {str(e)}")
-        record_audio.initialized = False  # Reset initialization flag
+        record_audio_enhanced.initialized = False  # Reset initialization flag
         return None
 
 def initialize_audio():
@@ -497,7 +495,7 @@ def initialize_audio():
         import speech_recognition as sr
         
         # Check for working audio devices
-        success, message, device_index = check_audio_devices()
+        success, message, device_index = initialize_audio_system()
         
         if not success:
             st.error(message)
@@ -913,49 +911,47 @@ def main():
             audio_file = text_to_speech(current_q['question'])
             play_audio(audio_file)
         
-        # Get answer using the new get_answer function
-        answer = get_answer()
-        
-        if answer:
-            st.write(f"Your answer: {answer}")
-            
-            # Evaluate answer
-            with st.spinner("Evaluating answer..."):
-                evaluation = evaluate_answer_with_rubric(
-                    current_q,
-                    answer,
-                    st.session_state.submitted_code,
-                    st.session_state.initial_analysis,
-                    st.session_state.rubric,
-                    st.session_state.uploaded_files_content
-                )
-            
-            if evaluation['assessment_type'] != 'ERROR':
-                st.write(f"Evaluation: {evaluation['explanation']}")
-                st.write(f"Score: {evaluation['score']}/{current_q['points']}")
+        # Record answer button
+        if st.button("Record Answer"):
+            answer = record_audio()
+            if answer:
+                st.write(f"Your answer: {answer}")
                 
-                if evaluation['needs_followup']:
-                    st.warning("Follow-up question needed:")
-                    st.write(evaluation['followup_question'])
-                    
-                    # Use get_answer for follow-up as well
-                    st.write("Please provide your follow-up answer:")
-                    followup_answer = get_answer()
-                    
-                    if followup_answer:
-                        st.write(f"Your follow-up answer: {followup_answer}")
-                        # Re-evaluate with follow-up
-                        evaluation = evaluate_answer_with_rubric(
-                            current_q,
-                            f"{answer}\nFollow-up answer: {followup_answer}",
-                            st.session_state.submitted_code,
-                            st.session_state.initial_analysis,
-                            st.session_state.rubric,
-                            st.session_state.uploaded_files_content
-                        )
-                        st.write(f"Updated evaluation: {evaluation['explanation']}")
-                        st.write(f"Final score: {evaluation['score']}/{current_q['points']}")
+                # Evaluate answer
+                with st.spinner("Evaluating answer..."):
+                    evaluation = evaluate_answer_with_rubric(
+                        current_q,
+                        answer,
+                        st.session_state.submitted_code,
+                        st.session_state.initial_analysis,
+                        st.session_state.rubric,
+                        st.session_state.uploaded_files_content
+                    )
                 
+                if evaluation['assessment_type'] != 'ERROR':
+                    st.write(f"Evaluation: {evaluation['explanation']}")
+                    st.write(f"Score: {evaluation['score']}/{current_q['points']}")
+                    
+                    if evaluation['needs_followup']:
+                        st.warning("Follow-up question needed:")
+                        st.write(evaluation['followup_question'])
+                        
+                        # Add button for follow-up response
+                        if st.button("Answer Follow-up"):
+                            followup_answer = record_audio()
+                            if followup_answer:
+                                st.write(f"Your follow-up answer: {followup_answer}")
+                                # Re-evaluate with follow-up
+                                evaluation = evaluate_answer_with_rubric(
+                                    current_q,
+                                    f"{answer}\nFollow-up answer: {followup_answer}",
+                                    st.session_state.submitted_code,
+                                    st.session_state.initial_analysis,
+                                    st.session_state.rubric,
+                                    st.session_state.uploaded_files_content
+                                )
+                                st.write(f"Updated evaluation: {evaluation['explanation']}")
+                                st.write(f"Final score: {evaluation['score']}/{current_q['points']}")
                     
                     # Add result to assessment history
                     st.session_state.assessment_results.append({
