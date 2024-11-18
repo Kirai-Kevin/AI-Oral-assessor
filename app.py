@@ -419,6 +419,35 @@ def check_audio_devices():
         
     except Exception as e:
         return False, f"Error detecting audio devices: {str(e)}", None
+    
+def get_answer():
+    """Get answer either through voice or text input"""
+    # Check for working microphone
+    mic_available, mic_message, _ = check_audio_devices()
+    
+    if not mic_available:
+        st.warning("⚠️ No microphone available. Please type your answer below.")
+        # Provide text input alternative
+        text_answer = st.text_area("Your answer:", height=100)
+        if st.button("Submit Answer"):
+            return text_answer if text_answer else None
+        return None
+    else:
+        # Show both options
+        input_method = st.radio(
+            "Choose how to provide your answer:",
+            ["Voice Recording", "Text Input"]
+        )
+        
+        if input_method == "Voice Recording":
+            if st.button("Start Recording"):
+                return record_audio()
+        else:
+            text_answer = st.text_area("Your answer:", height=100)
+            if st.button("Submit Answer"):
+                return text_answer if text_answer else None
+        
+        return None
 
 
 
@@ -884,47 +913,49 @@ def main():
             audio_file = text_to_speech(current_q['question'])
             play_audio(audio_file)
         
-        # Record answer button
-        if st.button("Record Answer"):
-            answer = record_audio()
-            if answer:
-                st.write(f"Your answer: {answer}")
+        # Get answer using the new get_answer function
+        answer = get_answer()
+        
+        if answer:
+            st.write(f"Your answer: {answer}")
+            
+            # Evaluate answer
+            with st.spinner("Evaluating answer..."):
+                evaluation = evaluate_answer_with_rubric(
+                    current_q,
+                    answer,
+                    st.session_state.submitted_code,
+                    st.session_state.initial_analysis,
+                    st.session_state.rubric,
+                    st.session_state.uploaded_files_content
+                )
+            
+            if evaluation['assessment_type'] != 'ERROR':
+                st.write(f"Evaluation: {evaluation['explanation']}")
+                st.write(f"Score: {evaluation['score']}/{current_q['points']}")
                 
-                # Evaluate answer
-                with st.spinner("Evaluating answer..."):
-                    evaluation = evaluate_answer_with_rubric(
-                        current_q,
-                        answer,
-                        st.session_state.submitted_code,
-                        st.session_state.initial_analysis,
-                        st.session_state.rubric,
-                        st.session_state.uploaded_files_content
-                    )
-                
-                if evaluation['assessment_type'] != 'ERROR':
-                    st.write(f"Evaluation: {evaluation['explanation']}")
-                    st.write(f"Score: {evaluation['score']}/{current_q['points']}")
+                if evaluation['needs_followup']:
+                    st.warning("Follow-up question needed:")
+                    st.write(evaluation['followup_question'])
                     
-                    if evaluation['needs_followup']:
-                        st.warning("Follow-up question needed:")
-                        st.write(evaluation['followup_question'])
-                        
-                        # Add button for follow-up response
-                        if st.button("Answer Follow-up"):
-                            followup_answer = record_audio()
-                            if followup_answer:
-                                st.write(f"Your follow-up answer: {followup_answer}")
-                                # Re-evaluate with follow-up
-                                evaluation = evaluate_answer_with_rubric(
-                                    current_q,
-                                    f"{answer}\nFollow-up answer: {followup_answer}",
-                                    st.session_state.submitted_code,
-                                    st.session_state.initial_analysis,
-                                    st.session_state.rubric,
-                                    st.session_state.uploaded_files_content
-                                )
-                                st.write(f"Updated evaluation: {evaluation['explanation']}")
-                                st.write(f"Final score: {evaluation['score']}/{current_q['points']}")
+                    # Use get_answer for follow-up as well
+                    st.write("Please provide your follow-up answer:")
+                    followup_answer = get_answer()
+                    
+                    if followup_answer:
+                        st.write(f"Your follow-up answer: {followup_answer}")
+                        # Re-evaluate with follow-up
+                        evaluation = evaluate_answer_with_rubric(
+                            current_q,
+                            f"{answer}\nFollow-up answer: {followup_answer}",
+                            st.session_state.submitted_code,
+                            st.session_state.initial_analysis,
+                            st.session_state.rubric,
+                            st.session_state.uploaded_files_content
+                        )
+                        st.write(f"Updated evaluation: {evaluation['explanation']}")
+                        st.write(f"Final score: {evaluation['score']}/{current_q['points']}")
+                
                     
                     # Add result to assessment history
                     st.session_state.assessment_results.append({
