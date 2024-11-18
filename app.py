@@ -420,31 +420,75 @@ def initialize_audio_system():
                             'channels': device['max_input_channels'],
                             'default_samplerate': device['default_samplerate']
                         })
-                except Exception:
-                    continue
-        
-        if not input_devices:
-            return False, "No working microphone devices found", None
-            
-        # Try to find default device first
-        default_device = next(
-            (dev for dev in input_devices if "default" in dev['name'].lower() or 
-             "built-in" in dev['name'].lower()),
-            input_devices[0]  # Fall back to first device if no default found
-        )
-        
-        return True, f"Found working microphone: {default_device['name']}", default_device['index']
-        
+                
+                if not input_devices:
+                    raise Exception("No input devices found")
+                
+                # Try to find best device in this order:
+                # 1. Default system microphone
+                # 2. Built-in microphone
+                # 3. First available microphone
+                default_device = None
+                for dev in input_devices:
+                    name_lower = dev['name'].lower()
+                    if "default" in name_lower:
+                        default_device = dev
+                        break
+                    elif "built-in" in name_lower:
+                        default_device = dev
+                        break
+                
+                if not default_device and input_devices:
+                    default_device = input_devices[0]
+                
+                if not default_device:
+                    raise Exception("No suitable microphone found")
+                
+                # Configure audio settings
+                sd.default.device = default_device['index']
+                sd.default.samplerate = int(default_device['default_samplerate'])
+                sd.default.channels = 1
+                
+                # Test microphone initialization
+                recognizer = sr.Recognizer()
+                mic = sr.Microphone(device_index=default_device['index'])
+                
+                with mic as source:
+                    # Quick test recording
+                    st.info("🎤 Testing microphone...")
+                    recognizer.adjust_for_ambient_noise(source, duration=1)
+                    
+                    # Try a quick audio capture
+                    audio = recognizer.listen(source, timeout=1.0, phrase_time_limit=1.0)
+                    
+                    st.success(f"✅ Microphone initialized successfully: {default_device['name']}")
+                    return True, default_device['index']
+                    
+            except Exception as e:
+                retry_count += 1
+                if retry_count < max_retries:
+                    st.warning(f"Attempt {retry_count}/{max_retries} failed. Retrying...")
+                    sleep(1)  # Wait before retrying
+                else:
+                    st.error(f"Failed to initialize microphone after {max_retries} attempts: {str(e)}")
+                    st.write("""
+                    Troubleshooting steps:
+                    1. Check if your microphone is properly connected
+                    2. Ensure microphone permissions are granted to your browser
+                    3. Try selecting a different audio input device in your system settings
+                    4. Restart your browser and try again
+                    """)
+                    return False, None
+                    
     except Exception as e:
-        return False, f"Error detecting audio devices: {str(e)}", None
+        st.error(f"Error in audio system initialization: {str(e)}")
+        return False, None
 
 
-
-def record_audio():
-    """Record audio with improved error handling"""
-    # Initialize audio system if not already done
-    if not hasattr(record_audio, 'initialized'):
-        success = initialize_audio()
+def record_audio_enhanced():
+    """Enhanced audio recording with better error handling and user feedback"""
+    if not hasattr(record_audio_enhanced, 'initialized'):
+        success, device_index = initialize_audio_system()
         if not success:
             return None
         record_audio_enhanced.initialized = True
@@ -913,7 +957,7 @@ def main():
         
         # Record answer button
         if st.button("Record Answer"):
-            answer = record_audio()
+            answer = record_audio_enhanced()
             if answer:
                 st.write(f"Your answer: {answer}")
                 
@@ -938,7 +982,7 @@ def main():
                         
                         # Add button for follow-up response
                         if st.button("Answer Follow-up"):
-                            followup_answer = record_audio()
+                            followup_answer = record_audio_enhanced()
                             if followup_answer:
                                 st.write(f"Your follow-up answer: {followup_answer}")
                                 # Re-evaluate with follow-up
